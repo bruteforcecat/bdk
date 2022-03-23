@@ -207,6 +207,8 @@ impl BatchOperations for Batch {
     impl_batch_operations!({}, process_delete_batch);
 }
 
+/// Implementation of Database using [`sled::Tree`]. All write operations will be
+/// auto-flushed.
 impl Database for Tree {
     fn check_descriptor_checksum<B: AsRef<[u8]>>(
         &mut self,
@@ -224,6 +226,7 @@ impl Database for Tree {
             }
         } else {
             self.insert(&key, bytes.as_ref())?;
+            Tree::flush(self)?;
             Ok(())
         }
     }
@@ -380,31 +383,32 @@ impl Database for Tree {
     // inserts 0 if not present
     fn increment_last_index(&mut self, keychain: KeychainKind) -> Result<u32, Error> {
         let key = MapKey::LastIndex(keychain).as_map_key();
-        self.update_and_fetch(key, |prev| {
-            let new = match prev {
-                Some(b) => {
-                    let array: [u8; 4] = b.try_into().unwrap_or([0; 4]);
-                    let val = u32::from_be_bytes(array);
+        let last_index = self
+            .update_and_fetch(key, |prev| {
+                let new = match prev {
+                    Some(b) => {
+                        let array: [u8; 4] = b.try_into().unwrap_or([0; 4]);
+                        let val = u32::from_be_bytes(array);
 
-                    val + 1
-                }
-                None => 0,
-            };
+                        val + 1
+                    }
+                    None => 0,
+                };
 
-            Some(new.to_be_bytes().to_vec())
-        })?
-        .map_or(Ok(0), |b| -> Result<_, Error> {
-            let array: [u8; 4] = b
-                .as_ref()
-                .try_into()
-                .map_err(|_| Error::InvalidU32Bytes(b.to_vec()))?;
-            let val = u32::from_be_bytes(array);
-            Ok(val)
-        })
-    }
+                Some(new.to_be_bytes().to_vec())
+            })?
+            .map_or(Ok(0), |b| -> Result<_, Error> {
+                let array: [u8; 4] = b
+                    .as_ref()
+                    .try_into()
+                    .map_err(|_| Error::InvalidU32Bytes(b.to_vec()))?;
+                let val = u32::from_be_bytes(array);
+                Ok(val)
+            })?;
 
-    fn flush(&mut self) -> Result<(), Error> {
-        Ok(Tree::flush(self).map(|_| ())?)
+        Tree::flush(self)?;
+
+        Ok(last_index)
     }
 }
 
@@ -416,7 +420,10 @@ impl BatchDatabase for Tree {
     }
 
     fn commit_batch(&mut self, batch: Self::Batch) -> Result<(), Error> {
-        Ok(self.apply_batch(batch)?)
+        self.apply_batch(batch)?;
+
+        Tree::flush(self)?;
+        Ok(())
     }
 }
 

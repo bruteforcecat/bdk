@@ -881,10 +881,6 @@ impl Database for SqliteDatabase {
             }
         }
     }
-
-    fn flush(&mut self) -> Result<(), Error> {
-        Ok(())
-    }
 }
 
 impl BatchDatabase for SqliteDatabase {
