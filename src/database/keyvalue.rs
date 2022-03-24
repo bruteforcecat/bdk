@@ -517,4 +517,48 @@ mod test {
     fn test_sync_time() {
         crate::database::test::test_sync_time(get_tree());
     }
+
+    #[test]
+    fn test_auto_flush_in_commit_batch() {
+        use super::*;
+        use bitcoin::hashes::hex::*;
+
+        println!("0");
+        let mut tree = get_tree();
+
+        let mut batch = tree.begin_batch();
+
+        let script = Script::from(
+            Vec::<u8>::from_hex("76a91402306a7c23f3e8010de41e9e591348bb83f11daa88ac").unwrap(),
+        );
+        batch
+            .set_script_pubkey(&script, KeychainKind::External, 42)
+            .unwrap();
+
+        tree.commit_batch(batch).unwrap();
+
+        let flushed_bytes_size = Tree::flush(&tree).unwrap();
+
+        assert_eq!(flushed_bytes_size, 0);
+    }
+
+    #[test]
+    fn test_auto_flush_in_check_descriptor_checksum() {
+        use super::*;
+        use crate::descriptor::checksum::get_checksum;
+
+        let mut tree = get_tree();
+
+        let descriptor = "wpkh([c258d2e4/84h/1h/0h]tpubDDYkZojQFQjht8Tm4jsS3iuEmKjTiEGjG6KnuFNKKJb5A6ZUCUZKdvLdSDWofKi4ToRCwb9poe1XdqfUnP4jaJjCB2Zwv11ZLgSbnZSNecE/0/*)";
+
+        tree.check_descriptor_checksum(
+            KeychainKind::External,
+            get_checksum(descriptor).unwrap().as_bytes(),
+        )
+        .unwrap();
+
+        let flushed_bytes_size = Tree::flush(&tree).unwrap();
+
+        assert_eq!(flushed_bytes_size, 0)
+    }
 }
